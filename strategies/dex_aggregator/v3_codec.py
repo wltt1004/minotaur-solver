@@ -12,41 +12,18 @@ Two router variants are in production deployments today:
 universally — V2 SwapRouter02 still exposes the deadline-included
 exactInput on every chain we deploy to.
 """
-
 from eth_abi.abi import encode
+EXACT_INPUT_SINGLE_SELECTOR_V1 = bytes.fromhex('414bf389')
 
-# Uniswap V3 SwapRouter V1 — exactInputSingle WITH deadline
-# Signature: exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))
-EXACT_INPUT_SINGLE_SELECTOR_V1 = bytes.fromhex("414bf389")
+def _lr2():
+    global EXACT_INPUT_SELECTOR, EXACT_INPUT_SINGLE_SELECTOR, EXACT_INPUT_SINGLE_SELECTOR_V2, SWAP_ROUTER_V2_CHAINS, encode_exact_input, encode_exact_input_single, encode_swap_path
+    EXACT_INPUT_SINGLE_SELECTOR_V2 = bytes.fromhex('04e45aaf')
+    EXACT_INPUT_SINGLE_SELECTOR = EXACT_INPUT_SINGLE_SELECTOR_V1
+    SWAP_ROUTER_V2_CHAINS = {8453, 10, 42161}
+    EXACT_INPUT_SELECTOR = bytes.fromhex('c04b8d59')
 
-# Uniswap V3 SwapRouter V2 (SwapRouter02) — exactInputSingle WITHOUT deadline
-# Signature: exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))
-EXACT_INPUT_SINGLE_SELECTOR_V2 = bytes.fromhex("04e45aaf")
-
-# Default: V1 for backward compatibility
-EXACT_INPUT_SINGLE_SELECTOR = EXACT_INPUT_SINGLE_SELECTOR_V1
-
-# Chains that use SwapRouter02 (V2 encoding, no deadline param).
-# BT EVM is intentionally absent — Astrid Bridge deployed V1 there.
-SWAP_ROUTER_V2_CHAINS = {8453, 10, 42161}  # Base, Optimism, Arbitrum
-
-# Uniswap V3 SwapRouter.exactInput(ExactInputParams)
-# Signature: exactInput((bytes,address,uint256,uint256,uint256))
-EXACT_INPUT_SELECTOR = bytes.fromhex("c04b8d59")
-
-
-def encode_exact_input_single(
-    token_in: str,
-    token_out: str,
-    fee: int,
-    recipient: str,
-    deadline: int,
-    amount_in: int,
-    amount_out_minimum: int,
-    sqrt_price_limit_x96: int = 0,
-    chain_id: int = 0,
-) -> str:
-    """Encode Uniswap V3 SwapRouter.exactInputSingle calldata.
+    def encode_exact_input_single(token_in: str, token_out: str, fee: int, recipient: str, deadline: int, amount_in: int, amount_out_minimum: int, sqrt_price_limit_x96: int=0, chain_id: int=0) -> str:
+        """Encode Uniswap V3 SwapRouter.exactInputSingle calldata.
 
     Auto-detects SwapRouter version by chain_id:
     - V1 (Ethereum mainnet, Anvil forks): includes deadline param
@@ -66,32 +43,14 @@ def encode_exact_input_single(
     Returns:
         The ABI-encoded calldata as a 0x-prefixed hex string.
     """
-    if chain_id in SWAP_ROUTER_V2_CHAINS:
-        # SwapRouter02: no deadline field
-        encoded_params = encode(
-            ["(address,address,uint24,address,uint256,uint256,uint160)"],
-            [(token_in, token_out, fee, recipient, amount_in,
-              amount_out_minimum, sqrt_price_limit_x96)],
-        )
-        return "0x" + (EXACT_INPUT_SINGLE_SELECTOR_V2 + encoded_params).hex()
+        if chain_id in SWAP_ROUTER_V2_CHAINS:
+            encoded_params = encode(['(address,address,uint24,address,uint256,uint256,uint160)'], [(token_in, token_out, fee, recipient, amount_in, amount_out_minimum, sqrt_price_limit_x96)])
+            return '0x' + (EXACT_INPUT_SINGLE_SELECTOR_V2 + encoded_params).hex()
+        encoded_params = encode(['(address,address,uint24,address,uint256,uint256,uint256,uint160)'], [(token_in, token_out, fee, recipient, deadline, amount_in, amount_out_minimum, sqrt_price_limit_x96)])
+        return '0x' + (EXACT_INPUT_SINGLE_SELECTOR_V1 + encoded_params).hex()
 
-    # SwapRouter V1: includes deadline
-    encoded_params = encode(
-        ["(address,address,uint24,address,uint256,uint256,uint256,uint160)"],
-        [(token_in, token_out, fee, recipient, deadline, amount_in,
-          amount_out_minimum, sqrt_price_limit_x96)],
-    )
-    return "0x" + (EXACT_INPUT_SINGLE_SELECTOR_V1 + encoded_params).hex()
-
-
-def encode_exact_input(
-    path: bytes,
-    recipient: str,
-    deadline: int,
-    amount_in: int,
-    amount_out_minimum: int,
-) -> str:
-    """Encode Uniswap V3 SwapRouter.exactInput calldata (multi-hop).
+    def encode_exact_input(path: bytes, recipient: str, deadline: int, amount_in: int, amount_out_minimum: int) -> str:
+        """Encode Uniswap V3 SwapRouter.exactInput calldata (multi-hop).
 
     This encodes a multi-hop swap through a sequence of Uniswap V3 pools.
     The path is a packed encoding of (token, fee, token, fee, ..., token).
@@ -110,23 +69,11 @@ def encode_exact_input(
     Returns:
         The ABI-encoded calldata as a 0x-prefixed hex string.
     """
-    encoded_params = encode(
-        ["(bytes,address,uint256,uint256,uint256)"],
-        [
-            (
-                path,
-                recipient,
-                deadline,
-                amount_in,
-                amount_out_minimum,
-            )
-        ],
-    )
-    return "0x" + (EXACT_INPUT_SELECTOR + encoded_params).hex()
+        encoded_params = encode(['(bytes,address,uint256,uint256,uint256)'], [(path, recipient, deadline, amount_in, amount_out_minimum)])
+        return '0x' + (EXACT_INPUT_SELECTOR + encoded_params).hex()
 
-
-def encode_swap_path(tokens: list[str], fees: list[int]) -> bytes:
-    """Encode a Uniswap V3 multi-hop swap path.
+    def encode_swap_path(tokens: list[str], fees: list[int]) -> bytes:
+        """Encode a Uniswap V3 multi-hop swap path.
 
     Packs token addresses and fee tiers into the format expected by
     Uniswap V3's exactInput function.
@@ -144,19 +91,22 @@ def encode_swap_path(tokens: list[str], fees: list[int]) -> bytes:
         ValueError: If the number of fees does not match len(tokens) - 1,
             or if fewer than 2 tokens are provided.
     """
-    if len(tokens) < 2:
-        raise ValueError(f"Need at least 2 tokens for a path, got {len(tokens)}")
-    if len(fees) != len(tokens) - 1:
-        raise ValueError(
-            f"Need exactly {len(tokens) - 1} fees for {len(tokens)} tokens, "
-            f"got {len(fees)}"
-        )
+        if len(tokens) < 2:
+            raise ValueError(f'Need at least 2 tokens for a path, got {len(tokens)}')
 
-    path = b""
-    for i, token in enumerate(tokens):
-        addr_hex = token[2:] if token.startswith("0x") else token
-        path += bytes.fromhex(addr_hex)
-        if i < len(fees):
-            path += fees[i].to_bytes(3, byteorder="big")
+        def _dr1():
+            if len(fees) != len(tokens) - 1:
+                raise ValueError(f'Need exactly {len(tokens) - 1} fees for {len(tokens)} tokens, got {len(fees)}')
 
-    return path
+            def _lr1():
+                path = b''
+                for i, token in enumerate(tokens):
+                    addr_hex = token[2:] if token.startswith('0x') else token
+                    path += bytes.fromhex(addr_hex)
+                    if i < len(fees):
+                        path += fees[i].to_bytes(3, byteorder='big')
+                return path
+            return _lr1()
+        path = _dr1()
+        return path
+_lr2()
